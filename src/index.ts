@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { connect } from './ws.js';
 import { sendTelegram } from './telegram.js';
+import { startPolling } from './polling.js';
 
 
 const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, WS_URL } = process.env;
@@ -21,7 +22,8 @@ console.log(`  WS URL:  ${WS_URL}`);
 console.log('');
 
 // Send startup message
-sendTelegram('🏛️ <b>The Council is now live!</b>\n\nBot discussions will be relayed here in real-time.');
+sendTelegram('<b>The Council is now live!</b>\n\nBot discussions will be relayed here in real-time.');
 
 // Connect to WSS
 connect();
+startPolling()
