@@ -2,23 +2,26 @@
 // TELEGRAM POLLING — Listen for user messages in the group
 // ============================================================
 
-import { getBotToken, BOT_NAMES, BOT_TOKEN_KEYS } from './bots.js';
+import { getBotToken, BOT_NAMES } from './bots.js';
 import { sendTelegram } from './telegram.js';
 
 const MAIN_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
-const BACKEND_URL = process.env.BACKEND_URL || process.env.WS_URL?.replace('wss://', 'https://').replace('ws://', 'http://') || 'http://localhost:3005';
+const BACKEND_URL = process.env.BACKEND_URL!;
 
 let lastUpdateId = 0;
 
-// Map TG bot usernames to internal bot IDs
+// Map TG bot usernames → internal bot IDs
 const USERNAME_TO_BOT_ID: Record<string, string> = {
-  'JamesCouncilBot': 'chad',
-  'KeoneCouncilBot': 'quantum',
-  'PortdevCouncilBot': 'sensei',
-  'HarpalCouncilBot': 'sterling',
-  'MikeCouncilBot': 'oracle',
+  JamesCouncilBot: 'chad',
+  KeoneCouncilBot: 'quantum',
+  PortdevCouncilBot: 'sensei',
+  HarpalCouncilBot: 'sterling',
+  MikeCouncilBot: 'oracle',
 };
+
+// All our bot user IDs (to ignore their messages)
+const OUR_BOT_IDS = new Set<number>();
 
 // ============================================================
 // DETECT WHICH BOT IS MENTIONED
@@ -32,7 +35,7 @@ function detectTargetBot(text: string): string | null {
     }
   }
 
-  // Check name mentions
+  // Check name mentions (James, Keone, Portdev, Harpal, Mike)
   for (const [botId, name] of Object.entries(BOT_NAMES)) {
     if (text.toLowerCase().includes(name.toLowerCase())) {
       return botId;
@@ -46,36 +49,27 @@ function detectTargetBot(text: string): string | null {
 // FORWARD USER MESSAGE TO BACKEND
 // ============================================================
 
-async function forwardToBackend(message: string, username: string, targetBotId: string | null): Promise<{
-  botId: string;
-  botName: string;
-  response: string;
-} | null> {
+async function forwardToBackend(
+  message: string,
+  username: string,
+  targetBotId: string | null
+): Promise<{ botId: string; botName: string; response: string } | null> {
   try {
     const url = `${BACKEND_URL}/api/telegram/chat`;
-    console.log(`📤 Forwarding to backend: "${message.slice(0, 40)}..." target=${targetBotId || 'auto'}`);
+    console.log(`📤 Forwarding to backend: "${message.slice(0, 50)}..." target=${targetBotId || 'random'}`);
 
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message,
-        username,
-        targetBotId,
-      }),
+      body: JSON.stringify({ message, username, targetBotId }),
     });
 
     if (!res.ok) {
-      console.error(`❌ Backend returned ${res.status}`);
+      console.error(`❌ Backend returned ${res.status}: ${await res.text()}`);
       return null;
     }
 
-    const data = await res.json();
-    return {
-      botId: data.botId,
-      botName: data.botName,
-      response: data.response,
-    };
+    return await res.json();
   } catch (err) {
     console.error('❌ Failed to forward to backend:', err);
     return null;
@@ -106,43 +100,38 @@ async function pollUpdates(): Promise<void> {
       // Only process messages from our group
       if (String(msg.chat.id) !== CHAT_ID) continue;
 
-      // Ignore messages from bots (our own bots)
+      // Ignore messages from bots (our own bots posting)
       if (msg.from?.is_bot) continue;
 
       const text = msg.text;
-      const username = msg.from?.username || msg.from?.first_name || 'anon';
+      const username = msg.from?.first_name || msg.from?.username || 'anon';
 
-      console.log(`💬 TG user @${username}: ${text.slice(0, 50)}`);
+      console.log(`💬 TG user ${username}: ${text.slice(0, 60)}`);
 
       // Detect if a specific bot is mentioned
-      const targetBotId = detectTargetBot(text);
+      let targetBotId = detectTargetBot(text);
 
-      // Only respond if a bot is mentioned or it's a reply to a bot
-      const isReplyToBot = msg.reply_to_message?.from?.is_bot;
-
-      if (!targetBotId && !isReplyToBot) {
-        // User didn't mention a bot, skip
-        continue;
+      // If replying to one of our bots, target that bot
+      if (!targetBotId && msg.reply_to_message?.from?.is_bot) {
+        const replyUsername = msg.reply_to_message.from.username || '';
+        targetBotId = USERNAME_TO_BOT_ID[replyUsername] || null;
       }
 
-      // If replying to a bot, figure out which one
-      let resolvedTarget = targetBotId;
-      if (!resolvedTarget && isReplyToBot) {
-        const replyUsername = msg.reply_to_message?.from?.username || '';
-        resolvedTarget = USERNAME_TO_BOT_ID[replyUsername] || null;
-      }
+      // targetBotId can be null → backend picks a random bot
 
       // Forward to backend and get response
-      const result = await forwardToBackend(text, username, resolvedTarget);
+      const result = await forwardToBackend(text, username, targetBotId);
 
       if (result?.response) {
-        // Send response as the correct bot
         const botToken = getBotToken(result.botId);
         if (botToken) {
+          // Bot responds directly, no need for name prefix since it posts as itself
           sendTelegram(result.response, botToken);
         } else {
+          // Fallback: main bot posts with bot name
           sendTelegram(`<b>${result.botName}:</b> ${result.response}`);
         }
+        console.log(`✅ ${result.botName} replied to ${username}`);
       }
     }
   } catch (err) {
@@ -155,12 +144,19 @@ async function pollUpdates(): Promise<void> {
 // ============================================================
 
 export function startPolling(): void {
+  if (!BACKEND_URL) {
+    console.warn('⚠️ BACKEND_URL not set, skipping Telegram polling');
+    return;
+  }
+
   console.log('👂 Starting Telegram polling for user messages...');
+  console.log(`   Backend: ${BACKEND_URL}`);
+  console.log(`   Chat ID: ${CHAT_ID}`);
 
   async function loop() {
     while (true) {
       await pollUpdates();
-      // Small delay between polls (long polling handles the wait)
+      // Small delay between polls (long polling handles the wait via timeout=30)
       await new Promise((r) => setTimeout(r, 500));
     }
   }
