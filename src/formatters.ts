@@ -94,7 +94,7 @@ export function formatVerdict(data: any): string {
 
   const lines = [
     ``,
-    `${emoji} <b>COUNCIL VERDICT: ${verdict}</b> — $${escapeHtml(symbol)}`,
+    `<b>COUNCIL VERDICT: ${verdict}</b> — $${escapeHtml(symbol)}`,
     `━━━━━━━━━━━━━━━━━━`,
   ];
 
