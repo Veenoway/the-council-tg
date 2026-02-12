@@ -3,13 +3,32 @@
 // ============================================================
 
 import { getBotToken, BOT_NAMES } from './bots.js';
-import { sendTelegram } from './telegram.js';
 
 const MAIN_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const BACKEND_URL = process.env.BACKEND_URL!;
 
 let lastUpdateId = 0;
+
+// Rate limit: max messages per user per minute
+const MAX_MESSAGES_PER_MINUTE = 3;
+const userMessageTimestamps = new Map<number, number[]>();
+
+function isRateLimited(userId: number): boolean {
+  const now = Date.now();
+  const timestamps = userMessageTimestamps.get(userId) || [];
+
+  // Keep only timestamps from last 60s
+  const recent = timestamps.filter((t) => now - t < 60_000);
+  userMessageTimestamps.set(userId, recent);
+
+  if (recent.length >= MAX_MESSAGES_PER_MINUTE) {
+    return true;
+  }
+
+  recent.push(now);
+  return false;
+}
 
 // Map TG bot usernames → internal bot IDs
 const USERNAME_TO_BOT_ID: Record<string, string> = {
@@ -108,6 +127,11 @@ async function pollUpdates(): Promise<void> {
 
       console.log(`💬 TG user ${username}: ${text.slice(0, 60)}`);
 
+      // Rate limit check
+      if (isRateLimited(msg.from.id)) {
+        console.log(`⏳ Rate limited: ${username}`);
+        continue;
+      }
       // Detect if a specific bot is mentioned
       let targetBotId = detectTargetBot(text);
 
@@ -123,15 +147,7 @@ async function pollUpdates(): Promise<void> {
       const result = await forwardToBackend(text, username, targetBotId);
 
       if (result?.response) {
-        const botToken = getBotToken(result.botId);
-        if (botToken) {
-          // Bot responds directly, no need for name prefix since it posts as itself
-          sendTelegram(result.response, botToken);
-        } else {
-          // Fallback: main bot posts with bot name
-          sendTelegram(`<b>${result.botName}:</b> ${result.response}`);
-        }
-        console.log(`✅ ${result.botName} replied to ${username}`);
+        console.log(`✅ ${result.botName} replied to ${username} (via WSS)`);
       }
     }
   } catch (err) {
