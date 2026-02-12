@@ -51,7 +51,7 @@ export function formatNewToken(token: any): string {
     `<b>Holders:</b> ${holders}`,
     token.address ? `<b>CA:</b> <code>${token.address}</code>` : '',
     ``,
-    token.address ? `📈 <a href="https://dexscreener.com/monad/${token.address}">DexScreener</a> · <a href="https://nad.fun/token/${token.address}">NadFun</a>` : '',
+    token.address ? `📈 <a href="https://dexscreener.com/monad/${token.address}">DexScreener</a> · <a href="https://nad.fun/tokens/${token.address}">NadFun</a>` : '',
     `⏳ <i>The Council is now analyzing this token...</i>`,
   ]
     .filter(Boolean)
@@ -77,7 +77,7 @@ export function formatTrade(trade: any): string {
   ];
 
   if (trade.txHash) {
-    lines.push(`🔗 <a href="https://testnet.monadexplorer.com/tx/${trade.txHash}">View TX</a>`);
+    lines.push(`🔗 <a href="https://monad.socialscan.io/tx/${trade.txHash}">View TX</a>`);
   }
 
   return lines.join('\n');
@@ -94,7 +94,7 @@ export function formatVerdict(data: any): string {
 
   const lines = [
     ``,
-    `<b>COUNCIL VERDICT: ${verdict}</b> — $${escapeHtml(symbol)}`,
+    `${emoji} <b>COUNCIL VERDICT: ${verdict}</b> — $${escapeHtml(symbol)}`,
     `━━━━━━━━━━━━━━━━━━`,
   ];
 
